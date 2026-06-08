@@ -1,0 +1,10 @@
+{
+  "extension.description": "Language support for LinePutScript .lps files.",
+  "command.category": "LinePutScript",
+  "command.escapeSelection.title": "Escape Selection",
+  "command.unescapeSelection.title": "Unescape Selection",
+  "command.formatDocument.title": "Format Document",
+  "command.showParsedStructure.title": "Show Parsed Structure",
+  "command.openPreview.title": "Open Preview",
+  "submenu.lineputscript.label": "LinePutScript"
+}

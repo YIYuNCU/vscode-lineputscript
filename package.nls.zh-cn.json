@@ -1,0 +1,10 @@
+{
+  "extension.description": "为 LinePutScript .lps 文件提供语言支持。",
+  "command.category": "LinePutScript",
+  "command.escapeSelection.title": "转义选中内容",
+  "command.unescapeSelection.title": "反转义选中内容",
+  "command.formatDocument.title": "格式化文档",
+  "command.showParsedStructure.title": "显示解析结构",
+  "command.openPreview.title": "打开预览",
+  "submenu.lineputscript.label": "LinePutScript"
+}

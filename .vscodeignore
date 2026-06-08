@@ -1,0 +1,12 @@
+.vscode/**
+history/**
+test/**
+src/**
+*.ts
+tsconfig.json
+esbuild.js
+node_modules/**
+out/test/**
+**/*.map
+*.vsix
+package-lock.json

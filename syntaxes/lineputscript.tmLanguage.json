@@ -1,0 +1,105 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "LinePutScript",
+  "scopeName": "source.lineputscript",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#escapes"
+    },
+    {
+      "include": "#line-name"
+    },
+    {
+      "include": "#sub-name"
+    },
+    {
+      "include": "#info-value"
+    },
+    {
+      "include": "#text-value"
+    },
+    {
+      "include": "#separators"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.triple-slash.lineputscript",
+          "match": "///.*$"
+        }
+      ]
+    },
+    "escapes": {
+      "patterns": [
+        {
+          "name": "constant.character.escape.lineputscript",
+          "match": "/(?:stop|equ|tab|n|r|id|com|!|\\|)"
+        }
+      ]
+    },
+    "line-name": {
+      "patterns": [
+        {
+          "name": "entity.name.tag.line.lineputscript",
+          "match": "^(?!///)((?:(?!#|:\\|)[^\\r\\n])+)(?=(?:#|:\\|))"
+        }
+      ]
+    },
+    "sub-name": {
+      "patterns": [
+        {
+          "name": "variable.parameter.sub.lineputscript",
+          "match": "(?<=:\\|)((?:(?!#|:\\|)[^\\r\\n])+)(?=(?:#|:\\|))"
+        }
+      ]
+    },
+    "info-value": {
+      "patterns": [
+        {
+          "name": "meta.info.lineputscript",
+          "begin": "#",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.separator.key-value.lineputscript"
+            }
+          },
+          "end": "(?=:\\|)",
+          "patterns": [
+            {
+              "include": "#escapes"
+            },
+            {
+              "name": "string.unquoted.info.lineputscript",
+              "match": "(?:(?!:\\|)[^/\\r\\n])+"
+            }
+          ]
+        }
+      ]
+    },
+    "text-value": {
+      "patterns": [
+        {
+          "name": "string.unquoted.text.lineputscript",
+          "match": "(?<=:\\|)(?![^\\r\\n]*:\\|)[^/\\r\\n]*?(?=///|$)"
+        }
+      ]
+    },
+    "separators": {
+      "patterns": [
+        {
+          "name": "punctuation.separator.key-value.lineputscript",
+          "match": "#"
+        },
+        {
+          "name": "punctuation.separator.entry.lineputscript",
+          "match": ":\\|"
+        }
+      ]
+    }
+  }
+}

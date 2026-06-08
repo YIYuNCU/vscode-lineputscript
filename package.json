@@ -1,0 +1,150 @@
+{
+  "name": "lineputscript",
+  "displayName": "LinePutScript",
+  "description": "为 LinePutScript .lps 文件提供语言支持。",
+  "version": "0.1.8",
+  "publisher": "lineputscript",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LorisYounger/LinePutScript.git",
+    "directory": "vscode-lineputscript"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Formatters",
+    "Linters"
+  ],
+  "main": "./out/src/extension.js",
+  "activationEvents": [
+    "onLanguage:lineputscript",
+    "onCommand:lineputscript.escapeSelection",
+    "onCommand:lineputscript.unescapeSelection",
+    "onCommand:lineputscript.formatDocument",
+    "onCommand:lineputscript.showParsedStructure",
+    "onCommand:lineputscript.openPreview"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "lineputscript",
+        "aliases": [
+          "LinePutScript",
+          "LPS"
+        ],
+        "extensions": [
+          ".lps"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "lineputscript",
+        "scopeName": "source.lineputscript",
+        "path": "./syntaxes/lineputscript.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "lineputscript.escapeSelection",
+        "title": "转义选中内容",
+        "category": "LinePutScript"
+      },
+      {
+        "command": "lineputscript.unescapeSelection",
+        "title": "反转义选中内容",
+        "category": "LinePutScript"
+      },
+      {
+        "command": "lineputscript.formatDocument",
+        "title": "格式化文档",
+        "category": "LinePutScript"
+      },
+      {
+        "command": "lineputscript.showParsedStructure",
+        "title": "显示解析结构",
+        "category": "LinePutScript"
+      },
+      {
+        "command": "lineputscript.openPreview",
+        "title": "打开预览",
+        "category": "LinePutScript"
+      }
+    ],
+    "menus": {
+      "lineputscript": [
+        {
+          "command": "lineputscript.escapeSelection",
+          "group": "1_modification@1"
+        },
+        {
+          "command": "lineputscript.unescapeSelection",
+          "group": "1_modification@2"
+        },
+        {
+          "command": "lineputscript.formatDocument",
+          "group": "2_document@1"
+        },
+        {
+          "command": "lineputscript.openPreview",
+          "group": "3_view@1"
+        },
+        {
+          "command": "lineputscript.showParsedStructure",
+          "group": "3_view@2"
+        }
+      ],
+      "editor/context": [
+        {
+          "submenu": "lineputscript",
+          "when": "editorLangId == lineputscript",
+          "group": "navigation@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "lineputscript.formatDocument",
+          "when": "editorLangId == lineputscript"
+        },
+        {
+          "command": "lineputscript.showParsedStructure",
+          "when": "editorLangId == lineputscript"
+        },
+        {
+          "command": "lineputscript.openPreview",
+          "when": "editorLangId == lineputscript"
+        }
+      ]
+    },
+    "submenus": [
+      {
+        "id": "lineputscript",
+        "label": "LinePutScript"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check && npm run package",
+    "check": "tsc -p ./ --noEmit",
+    "package": "node esbuild.js --production",
+    "watch": "node esbuild.js --watch",
+    "test": "npm run compile && node esbuild.js --tests && node --test out/test/*.test.js",
+    "test:consistency": "npm run compile && dotnet run --project test/LinePutScriptConsistency/LinePutScriptConsistency.csproj"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.12"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.25.5",
+    "typescript": "^5.8.3"
+  }
+}
