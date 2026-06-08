@@ -7,7 +7,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/LorisYounger/LinePutScript.git",
+    "url": "git+https://github.com/YIYuNCU/vscode-lineputscript.git",
     "directory": "vscode-lineputscript"
   },
   "engines": {
