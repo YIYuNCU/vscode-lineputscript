@@ -3,7 +3,7 @@
   "displayName": "LinePutScript",
   "description": "为 LinePutScript .lps 文件提供语言支持。",
   "version": "0.1.8",
-  "publisher": "lineputscript",
+  "publisher": "EvianChu",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
