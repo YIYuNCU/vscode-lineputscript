@@ -35,7 +35,7 @@ test("continuation lines are merged like LpsDocument.Load and keep original rang
 
   assert.equal(document.lines.length, 2);
   assert.equal(document.lines[0].text, " first/n second");
-  assert.equal(document.lines[0].decodedText, " first\n second");
+  assert.equal(document.lines[0].decodedText, " first/n second");
   assert.equal(slice(text, document.lines[0].range), "detail:| first:\n| second");
   assert.equal(slice(text, document.lines[1].nameRange), "next");
 });

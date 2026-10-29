@@ -2,7 +2,7 @@
   "name": "lineputscript",
   "displayName": "LinePutScript",
   "description": "为 LinePutScript .lps 文件提供语言支持。",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "LBGroup",
   "license": "Apache-2.0",
   "repository": {

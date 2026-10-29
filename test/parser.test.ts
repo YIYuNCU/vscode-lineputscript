@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
-import { decodeLpsText, encodeLpsText } from "../src/lps/escape";
+import { decodeLpsText, decodeLpsTextLikeCSharp, encodeLpsText } from "../src/lps/escape";
 import { formatLpsDocument } from "../src/lps/formatter";
 import { parseLpsDocument } from "../src/lps/parser";
 
@@ -34,8 +34,8 @@ test("parses basic lines, subs, text, comments, and UTF-8 content", () => {
   assert.equal(document.lines[1].name, "computer");
   assert.equal(document.lines[1].subs[0].name, "name");
   assert.equal(document.lines[1].subs[0].decodedInfo, "我的电脑");
-  assert.equal(document.lines[2].subs[0].decodedInfo, "第一行\n第二行");
-  assert.equal(document.lines[2].decodedText, "正文\n内容");
+  assert.equal(document.lines[2].subs[0].decodedInfo, "第一行/n第二行");
+  assert.equal(document.lines[2].decodedText, "正文/n内容");
   assert.equal(document.lines[2].comments, "注释");
 });
 
@@ -44,18 +44,21 @@ test("matches LinePutScript escaping order", () => {
   const encoded = encodeLpsText(value);
 
   assert.equal(encoded, "a:/!|b/idc/comd/!e/!|f/n/tab");
-  assert.equal(decodeLpsText(encoded), value);
+  // /n is intentionally not decoded back to a newline, everything else round-trips.
+  assert.equal(decodeLpsText(encoded), value.replace("\n", "/n"));
+  assert.equal(decodeLpsTextLikeCSharp(encoded), value);
 });
 
 test("handles all decoder escape sequences", () => {
-  assert.equal(decodeLpsText("/stop /equ /tab /n /r /id /com /! /|"), ":| = \t \n \r # , / |");
+  assert.equal(decodeLpsText("/stop /equ /tab /n /r /id /com /! /|"), ":| = \t /n \r # , / |");
+  assert.equal(decodeLpsTextLikeCSharp("/stop /equ /tab /n /r /id /com /! /|"), ":| = \t \n \r # , / |");
 });
 
 test("handles multiline continuation semantics", () => {
   const document = parseLpsDocument(fixture("multiline.lps"));
 
   assert.equal(document.lines.length, 2);
-  assert.equal(document.lines[0].decodedText, " 这是一份文件\n 文件内容包含换行");
+  assert.equal(document.lines[0].decodedText, " 这是一份文件/n 文件内容包含换行");
   assert.equal(document.lines[1].decodedText, " 这是一段 被软连接的文本");
 });
 
@@ -97,4 +100,19 @@ test("reports missing line separator", () => {
 
   assert.equal(document.diagnostics.length, 1);
   assert.equal(document.diagnostics[0].code, "missing-line-separator");
+});
+
+test("/n and /null are never decoded, other escapes still are", () => {
+  assert.equal(decodeLpsText("/null"), "/null");
+  assert.equal(decodeLpsText("a/nb"), "a/nb");
+  assert.equal(decodeLpsText("/!n"), "/n");
+  assert.equal(decodeLpsText("/com/id/null"), ",#/null");
+  // The C# decoder would turn /null into a newline followed by "ull".
+  assert.equal(decodeLpsTextLikeCSharp("/null"), "\null");
+
+  const document = parseLpsDocument("Image#/null:|photo#time=1/n2:|abc/ndef");
+  assert.equal(document.lines[0].decodedInfo, "/null");
+  assert.equal(document.lines[0].subs[0].decodedInfo, "time=1/n2");
+  assert.equal(document.lines[0].decodedText, "abc/ndef");
+  assert.ok(!document.lines[0].decodedInfo.includes("\n"));
 });

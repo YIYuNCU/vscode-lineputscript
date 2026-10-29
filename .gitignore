@@ -1,4 +1,43 @@
+# 依赖
 node_modules/
+
+# 构建产物（out-* 用于并行或被占用时的备用输出目录）
 out/
 out-*/
+dist/
+*.tsbuildinfo
+
+# 扩展安装包；历史版本放在 history/，仅保留占位文件
 *.vsix
+history/*
+!history/.keep
+
+# .NET 一致性测试项目的构建输出
+test/LinePutScriptConsistency/bin/
+test/LinePutScriptConsistency/obj/
+
+# 差分测试与脚本产生的临时文件
+lps-fuzz-*
+lps-stage/
+
+# 日志与调试
+*.log
+npm-debug.log*
+.vscode-test/
+coverage/
+.nyc_output/
+
+# 编辑器与系统文件
+.vs/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# 本地环境与密钥
+.env
+.env.*
+!.env.example
+
+# AI 助手本地文件
+CLAUDE.md

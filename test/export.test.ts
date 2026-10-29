@@ -2,6 +2,32 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { escapeCsvField, exportFormatExtensions, exportParsed, lineBodyText, lineRawBodyText } from "../src/lps/export";
 import { parseLpsDocument } from "../src/lps/parser";
+import type { LpsDocument } from "../src/lps/types";
+
+/**
+ * The parser no longer decodes `/n`, so values with real line breaks can only come from hand-built
+ * documents. The exporters still have to handle them, so tests inject them into the decoded fields.
+ */
+function withDecoded(
+  document: LpsDocument,
+  lineIndex: number,
+  overrides: { info?: string; text?: string; comments?: string; subs?: string[] }
+): LpsDocument {
+  const line = document.lines[lineIndex];
+  if (overrides.info !== undefined) {
+    line.decodedInfo = overrides.info;
+  }
+  if (overrides.text !== undefined) {
+    line.decodedText = overrides.text;
+  }
+  if (overrides.comments !== undefined) {
+    line.comments = overrides.comments;
+  }
+  overrides.subs?.forEach((value, index) => {
+    line.subs[index].decodedInfo = value;
+  });
+  return document;
+}
 
 const sample = [
   "///文件头注释",
@@ -21,8 +47,9 @@ test("json export contains decoded values, comments and no raw fields by default
   assert.deepEqual(data.lines[0], { name: "", info: "", text: "", comments: "文件头注释", subs: [] });
   assert.deepEqual(data.lines[1], {
     name: "吃饭",
-    info: "主线\n第二行",
-    text: "正文\ntext",
+    // `/n` is not decoded, so no line break appears in the exported values.
+    info: "主线/n第二行",
+    text: "正文/ntext",
     comments: "行尾注释",
     subs: [
       { name: "苹果", info: "3,4" },
@@ -32,6 +59,18 @@ test("json export contains decoded values, comments and no raw fields by default
   assert.deepEqual(data.lines[2].subs, []);
   assert.equal(data.lines[3].name, "你好");
   assert.equal(data.lines[3].subs[0].info, "小明");
+});
+
+test("json export keeps hand-built multi-line values as real line breaks", () => {
+  const document = withDecoded(parseLpsDocument(sample), 1, { info: "主线\n第二行", text: "正文\ntext", subs: ["a\nb"] });
+  const data = JSON.parse(exportParsed(document, "json")) as {
+    lines: Array<{ info: string; text: string; subs: Array<{ info: string }> }>;
+  };
+
+  assert.equal(data.lines[1].info, "主线\n第二行");
+  assert.equal(data.lines[1].text, "正文\ntext");
+  assert.equal(data.lines[1].subs[0].info, "a\nb");
+  assert.equal(data.lines[1].subs[1].info, "a\"b");
 });
 
 test("json export is indented with two spaces and keeps non-ASCII text readable", () => {
@@ -70,14 +109,34 @@ test("csv export has one row per sub and one row for lines without subs", () => 
   assert.ok(csv.endsWith("\r\n"));
   assert.ok(!csv.startsWith(String.fromCharCode(0xfeff)));
   assert.equal(rows[1], ",,,,,文件头注释");
-  // The multi-line cells make the 吃饭 rows span several physical rows; compare as a whole.
-  assert.ok(csv.includes("\r\n吃饭,\"主线\n第二行\",苹果,\"3,4\","));
+  // `/n` stays as written, so every sub is exactly one physical row.
+  assert.deepEqual(rows, [
+    "line,lineInfo,sub,subInfo,text,comments",
+    ",,,,,文件头注释",
+    "吃饭,主线/n第二行,苹果,\"3,4\",正文/ntext,行尾注释",
+    "吃饭,主线/n第二行,香蕉,\"a\"\"b\",正文/ntext,行尾注释",
+    "empty,,,,,",
+    "你好,世界,名字,小明,,",
+    ""
+  ]);
+
+  // Hand-built multi-line cells make the 吃饭 rows span several physical rows; compare as a whole.
+  const multiline = exportParsed(withDecoded(parseLpsDocument(sample), 1, { info: "主线\n第二行", text: "正文\ntext" }), "csv");
+  assert.ok(multiline.includes("\r\n吃饭,\"主线\n第二行\",苹果,\"3,4\",\"正文\ntext\",行尾注释\r\n"));
 });
 
 test("csv export escapes commas, quotes and newlines per RFC 4180", () => {
   const parsed = parseLpsDocument("l#a/com,b:|s#say \"hi\":|c/nd///x,y");
-  const csv = exportParsed(parsed, "csv");
 
+  // `/n` is kept verbatim, so the text cell needs no quoting.
+  assert.equal(
+    exportParsed(parsed, "csv"),
+    "line,lineInfo,sub,subInfo,text,comments\r\n"
+    + "l,\"a,,b\",s,\"say \"\"hi\"\"\",c/nd,\"x,y\"\r\n"
+  );
+
+  // A real line break in a decoded value is still quoted.
+  const csv = exportParsed(withDecoded(parsed, 0, { text: "c\nd" }), "csv");
   assert.equal(
     csv,
     "line,lineInfo,sub,subInfo,text,comments\r\n"
@@ -86,7 +145,7 @@ test("csv export escapes commas, quotes and newlines per RFC 4180", () => {
 });
 
 test("csv export parses back to the same cells", () => {
-  const csv = exportParsed(parseLpsDocument(sample), "csv");
+  const csv = exportParsed(withDecoded(parseLpsDocument(sample), 1, { info: "主线\n第二行", text: "正文\ntext" }), "csv");
   const records = parseCsv(csv);
 
   assert.deepEqual(records[0], ["line", "lineInfo", "sub", "subInfo", "text", "comments"]);
@@ -112,8 +171,26 @@ test("csv export of an empty document contains only the header", () => {
   assert.equal(exportParsed(parseLpsDocument(""), "csv"), "line,lineInfo,sub,subInfo,text,comments\r\n");
 });
 
-test("txt export is readable and keeps comments and multi-line values aligned", () => {
-  const txt = exportParsed(parseLpsDocument(sample), "txt");
+test("txt export is readable and keeps /n verbatim on a single line", () => {
+  assert.equal(exportParsed(parseLpsDocument(sample), "txt"), [
+    "/// 文件头注释",
+    "",
+    "[吃饭] 主线/n第二行",
+    "  苹果 = 3,4",
+    "  香蕉 = a\"b",
+    "  text: 正文/ntext",
+    "  /// 行尾注释",
+    "",
+    "[empty]",
+    "",
+    "[你好] 世界",
+    "  名字 = 小明",
+    ""
+  ].join("\n"));
+});
+
+test("txt export keeps comments and hand-built multi-line values aligned", () => {
+  const txt = exportParsed(withDecoded(parseLpsDocument(sample), 1, { info: "主线\n第二行", text: "正文\ntext" }), "txt");
 
   assert.equal(txt, [
     "/// 文件头注释",
@@ -135,10 +212,49 @@ test("txt export is readable and keeps comments and multi-line values aligned", 
 });
 
 test("txt export indents continuation lines of sub values and comments", () => {
-  const txt = exportParsed(parseLpsDocument("a#:|s#x/ny/rz:|"), "txt");
+  // `/n` is not decoded, but `/r` still becomes a carriage return and is treated as a line break.
+  assert.equal(exportParsed(parseLpsDocument("a#:|s#x/ny/rz:|"), "txt"), "[a]\n  s = x/ny\n    z\n");
 
-  assert.equal(txt, "[a]\n  s = x\n    y\n    z\n");
+  const document = withDecoded(parseLpsDocument("a#:|s#x/ny/rz:|"), 0, { subs: ["x\ny\rz"] });
+  assert.equal(exportParsed(document, "txt"), "[a]\n  s = x\n    y\n    z\n");
+
+  const withComments = withDecoded(parseLpsDocument("a#i:|s#v:|body///c"), 0, { comments: "c1\r\nc2" });
+  assert.equal(exportParsed(withComments, "txt"), "[a] i\n  s = v\n  text: body\n  /// c1\n      c2\n");
+
+  const commentOnly = withDecoded(parseLpsDocument("///c"), 0, { comments: "c1\nc2" });
+  assert.equal(exportParsed(commentOnly, "txt"), "/// c1\n    c2\n");
+
   assert.equal(exportParsed(parseLpsDocument(""), "txt"), "");
+});
+
+test("/n and /null stay verbatim in json, csv and txt exports", () => {
+  const parsed = parseLpsDocument("Image#/null:|a#x/ny:|b#/null:|body/nn///c");
+  const json = JSON.parse(exportParsed(parsed, "json", { includeRaw: true })) as {
+    lines: Array<{ info: string; text: string; rawInfo: string; rawText: string; subs: Array<{ info: string; rawInfo: string }> }>;
+  };
+
+  assert.equal(json.lines[0].info, "/null");
+  assert.equal(json.lines[0].rawInfo, "/null");
+  assert.equal(json.lines[0].text, "body/nn");
+  assert.deepEqual(json.lines[0].subs.map((sub) => sub.info), ["x/ny", "/null"]);
+
+  const csv = exportParsed(parsed, "csv");
+  assert.equal(
+    csv,
+    "line,lineInfo,sub,subInfo,text,comments\r\n"
+    + "Image,/null,a,x/ny,body/nn,c\r\n"
+    + "Image,/null,b,/null,body/nn,c\r\n"
+  );
+  assert.deepEqual(parseCsv(csv)[1], ["Image", "/null", "a", "x/ny", "body/nn", "c"]);
+
+  assert.equal(
+    exportParsed(parsed, "txt"),
+    "[Image] /null\n  a = x/ny\n  b = /null\n  text: body/nn\n  /// c\n"
+  );
+
+  // `/!n` decodes once to `/n` (no second decode in the exporters).
+  const escaped = JSON.parse(exportParsed(parseLpsDocument("a#/!n:|"), "json")) as { lines: Array<{ info: string }> };
+  assert.equal(escaped.lines[0].info, "/n");
 });
 
 test("export extensions match the formats", () => {
@@ -197,7 +313,7 @@ test("a line without :| exports an empty text in json, csv and txt", () => {
     lines: Array<{ name: string; info: string; text: string; rawInfo: string; rawText: string }>;
   };
   assert.equal(data.lines[0].name, "loose");
-  assert.equal(data.lines[0].info, "a\nb");
+  assert.equal(data.lines[0].info, "a/nb");
   assert.equal(data.lines[0].text, "");
   assert.equal(data.lines[0].rawInfo, "a/nb");
   assert.equal(data.lines[0].rawText, "");
@@ -205,13 +321,12 @@ test("a line without :| exports an empty text in json, csv and txt", () => {
   assert.equal(data.lines[1].rawText, "body");
 
   const records = parseCsv(exportParsed(parsed, "csv"));
-  assert.deepEqual(records[1], ["loose", "a\nb", "", "", "", ""]);
+  assert.deepEqual(records[1], ["loose", "a/nb", "", "", "", ""]);
   assert.deepEqual(records[2], ["ok", "i", "s", "v", "body", ""]);
 
   const txt = exportParsed(parsed, "txt");
   assert.equal(txt, [
-    "[loose] a",
-    "  b",
+    "[loose] a/nb",
     "",
     "[ok] i",
     "  s = v",

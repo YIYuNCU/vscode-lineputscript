@@ -41,7 +41,7 @@ test("hover for a line shows decoded info, hint, sub count and text", () => {
   assert.match(markdown, /\*\*Line\*\* ` birthday `/);
   assert.match(markdown, /2023-08-17 00:00:00/);
   assert.match(markdown, /Subs: 1/);
-  assert.match(markdown, /Text: ` 正文↵第二行 `/);
+  assert.match(markdown, /Text: ` 正文\/n第二行 `/);
   assert.match(markdown, /Comments: ` 注释 `/);
 });
 

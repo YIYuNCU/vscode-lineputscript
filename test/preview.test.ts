@@ -17,8 +17,35 @@ import {
   renderPreviewHtml,
   shouldCollapseLine
 } from "../src/lps/preview";
+import type { LpsDocument } from "../src/lps/types";
 
 const nonce = "dGVzdC1ub25jZQ==";
+
+interface DecodedOverrides {
+  info?: string;
+  text?: string;
+  subs?: string[];
+}
+
+/**
+ * The parser no longer decodes `/n`, so a decoded value can never contain a newline that came from the
+ * file. The preview API can still receive such values (hand-built documents), so tests inject them
+ * directly into the decoded fields of one line.
+ */
+function parseWithDecoded(source: string, overrides: DecodedOverrides, lineIndex = 0): LpsDocument {
+  const document = parseLpsDocument(source);
+  const line = document.lines[lineIndex];
+  if (overrides.info !== undefined) {
+    line.decodedInfo = overrides.info;
+  }
+  if (overrides.text !== undefined) {
+    line.decodedText = overrides.text;
+  }
+  overrides.subs?.forEach((value, index) => {
+    line.subs[index].decodedInfo = value;
+  });
+  return document;
+}
 
 function buildLine(name: string, subCount: number, info = "", subInfo = "v"): string {
   const subs = Array.from({ length: subCount }, (_, index) => `s${index}#${subInfo}`).join(":|");
@@ -32,27 +59,60 @@ function lineDetailsTag(html: string, name: string): string {
 }
 
 test("preview renders decoded info and text values", () => {
-  const parsed = parseLpsDocument("line#hello/nworld:|sub#a/idb:|body/ntext///note");
+  const parsed = parseLpsDocument("line#hello/idworld:|sub#a/idb:|body/ntext///note");
   const html = renderPreviewHtml(parsed);
 
-  assert.match(html, /hello\s+world/);
+  assert.equal(parsed.lines[0].decodedInfo, "hello#world");
+  assert.equal(parsed.lines[0].decodedText, "body/ntext");
+  assert.match(html, /<div class="value">hello#world<\/div>/);
   assert.match(html, /a#b/);
-  assert.match(html, /body\s+text/);
-  assert.match(html, /raw: hello\/nworld/);
+  // `/n` is not decoded: it stays as written and never becomes a line break.
+  assert.match(html, /<div class="value">body\/ntext<\/div>/);
+  assert.match(html, /raw: hello\/idworld/);
+  assert.match(html, /raw: body\/ntext/);
+});
+
+test("preview keeps /n and /null verbatim and does not offer a further decode layer for them", () => {
+  const parsed = parseLpsDocument("Image#/null:|a#x/ny:|b#/null:|body/n///c");
+  const html = renderPreviewHtml(parsed, { nonce });
+
+  assert.equal(parsed.lines[0].decodedInfo, "/null");
+  assert.equal(parsed.lines[0].subs[0].decodedInfo, "x/ny");
+  assert.equal(parsed.lines[0].decodedText, "body/n");
+  assert.match(html, /<div class="value">\/null<\/div>/);
+  assert.match(html, /<div class="value">x\/ny<\/div>/);
+  assert.match(html, /<div class="value">body\/n<\/div>/);
+  assert.match(html, /<span class="snippet">\/null<\/span>/);
+  // Nothing decodes further, so no layer bookkeeping, and no value was split across lines.
+  assert.doesNotMatch(html, /data-action="deeper"|data-layer="1"|再解一层/);
+  assert.doesNotMatch(html, /<div class="(?:value|raw)">[^<]*\n/);
+  assert.doesNotMatch(html, /\d+ 行\)/);
 });
 
 test("preview decodes values only once", () => {
-  const parsed = parseLpsDocument("line#a/!nb:|sub#x/!taby:|");
+  const parsed = parseLpsDocument("line#a/!comb:|sub#x/!taby:|");
+  const html = renderPreviewHtml(parsed);
+
+  assert.equal(parsed.lines[0].decodedInfo, "a/comb");
+  assert.match(html, /raw: a\/!comb/);
+  assert.doesNotMatch(html, /preview-decoded/);
+  // Layer 0 is the parser's single decode and the only visible one.
+  assert.match(html, /<div class="vlayer" data-layer="0"><div class="value">a\/comb<\/div><\/div>/);
+  assert.match(html, /<div class="vlayer" data-layer="1" hidden><div class="value">a,b<\/div><\/div>/);
+  assert.match(html, /<div class="vlayer" data-layer="0"><div class="value">x\/taby<\/div><\/div>/);
+  assert.match(html, /<div class="vlayer" data-layer="1" hidden><div class="value">x\ty<\/div><\/div>/);
+});
+
+test("/!n decodes once to /n and a further pass leaves it unchanged", () => {
+  const parsed = parseLpsDocument("line#a/!nb:|sub#/!null:|");
   const html = renderPreviewHtml(parsed);
 
   assert.equal(parsed.lines[0].decodedInfo, "a/nb");
+  assert.equal(parsed.lines[0].subs[0].decodedInfo, "/null");
   assert.match(html, /raw: a\/!nb/);
-  assert.doesNotMatch(html, /preview-decoded/);
-  // Layer 0 is the parser's single decode and the only visible one.
-  assert.match(html, /<div class="vlayer" data-layer="0"><div class="value">a\/nb<\/div><\/div>/);
-  assert.match(html, /<div class="vlayer" data-layer="1" hidden><div class="value">a\nb<\/div><\/div>/);
-  assert.match(html, /<div class="vlayer" data-layer="0"><div class="value">x\/taby<\/div><\/div>/);
-  assert.match(html, /<div class="vlayer" data-layer="1" hidden><div class="value">x\ty<\/div><\/div>/);
+  assert.match(html, /<div class="value">a\/nb<\/div>/);
+  assert.match(html, /<div class="value">\/null<\/div>/);
+  assert.doesNotMatch(html, /data-action="deeper"|data-layer="1"/);
 });
 
 test("decoded values containing the line separator are not flagged", () => {
@@ -216,10 +276,44 @@ test("long values are truncated behind an expand button, short values are not", 
 
 test("multi-line long values report their line count", () => {
   const lines = PREVIEW_LONG_VALUE_LINES + 2;
-  const info = Array.from({ length: lines }, (_, index) => `row${index}`).join("/n");
-  const html = renderPreviewHtml(parseLpsDocument(`line#${info}:|`), { nonce });
+  const rows = Array.from({ length: lines }, (_, index) => `row${index}`);
+  // The raw file text can only hold `/n`; the multi-line decoded value is injected by hand.
+  const document = parseWithDecoded(`line#${rows.join("/n")}:|`, { info: rows.join("\n") });
+  const html = renderPreviewHtml(document, { nonce });
 
-  assert.match(html, new RegExp(`展开 \\(\\d+ 字符 / ${lines} 行\\)`));
+  assert.match(html, new RegExp(`展开 \\(${rows.join("\n").length} 字符 / ${lines} 行\\)`));
+  assert.ok(html.includes(`<div class="long-body">${rows.join("\n")}</div>`));
+  // The raw value has no real line break, so it is not folded by line count.
+  assert.doesNotMatch(html, /<details class="long-value raw">/);
+
+  // Without the injected newlines the parser output is a single line and reports no line count.
+  const parsedOnly = renderPreviewHtml(parseLpsDocument(`line#${rows.join("/n")}:|`), { nonce });
+  assert.doesNotMatch(parsedOnly, /字符 \/ \d+ 行/);
+});
+
+test("multi-line decoded values are rendered for info, sub and text, and fold in the summary snippet", () => {
+  const document = parseWithDecoded("line#i:|sub#s:|body", {
+    info: "first\nsecond",
+    text: "t1\nt2",
+    subs: ["s1\ns2"]
+  });
+  const html = renderPreviewHtml(document, { nonce });
+
+  assert.match(html, /<div class="value">first\nsecond<\/div>/);
+  assert.match(html, /<div class="value">s1\ns2<\/div>/);
+  assert.match(html, /<div class="value">t1\nt2<\/div>/);
+  // The inline summary flattens line breaks into spaces.
+  assert.match(html, /<span class="snippet">first second<\/span>/);
+});
+
+test("long multi-line sub and text values report their line count", () => {
+  const lines = PREVIEW_LONG_VALUE_LINES + 1;
+  const value = Array.from({ length: lines }, (_, index) => `r${index}`).join("\n");
+  const document = parseWithDecoded("line#i:|sub#s:|body", { text: value, subs: [value] });
+  const html = renderPreviewHtml(document, { nonce });
+
+  assert.equal((html.match(new RegExp(`字符 / ${lines} 行\\)`, "g")) ?? []).length, 2);
+  assert.equal((html.match(/<details class="long-value value">/g) ?? []).length, 2);
 });
 
 test("sub raw column only repeats the value when it differs from the decoded one", () => {
@@ -288,11 +382,19 @@ test("computeDecodeLayers lists every further decode pass and stops when nothing
   assert.deepEqual(computeDecodeLayers("plain"), ["plain"]);
   assert.deepEqual(computeDecodeLayers(""), [""]);
   assert.deepEqual(computeDecodeLayers(":|"), [":|"]);
-  assert.deepEqual(computeDecodeLayers("a//nb"), ["a//nb", "a/\nb"]);
-  assert.deepEqual(computeDecodeLayers("/!!!n"), ["/!!!n", "/!!n", "/!n", "/n", "\n"]);
+  assert.deepEqual(computeDecodeLayers("/!com"), ["/!com", "/com", ","]);
+  assert.deepEqual(computeDecodeLayers("/!!!com"), ["/!!!com", "/!!com", "/!com", "/com", ","]);
+  // `/n` is never decoded, so it is stable; `/!n` only loses its escape once and then stops changing.
+  assert.deepEqual(computeDecodeLayers("a//nb"), ["a//nb"]);
+  assert.deepEqual(computeDecodeLayers("/n"), ["/n"]);
+  assert.deepEqual(computeDecodeLayers("/null"), ["/null"]);
+  assert.deepEqual(computeDecodeLayers("/!n"), ["/!n", "/n"]);
+  assert.deepEqual(computeDecodeLayers("/!!!n"), ["/!!!n", "/!!n", "/!n", "/n"]);
+  // /r is still decoded.
+  assert.deepEqual(computeDecodeLayers("/!r"), ["/!r", "/r", "\r"]);
 
   // Every layer is exactly one decodeLpsText pass over the previous one.
-  const layers = computeDecodeLayers("/!!!n");
+  const layers = computeDecodeLayers("/!!!com");
   for (let index = 1; index < layers.length; index++) {
     assert.equal(layers[index], decodeLpsText(layers[index - 1]));
   }
@@ -307,7 +409,7 @@ test("computeDecodeLayers is capped at eight extra layers", () => {
 });
 
 test("decode layers and their buttons are only rendered for values that change", () => {
-  const html = renderPreviewHtml(parseLpsDocument("line#same:|a#plain:|b#x/!ny:|"), { nonce });
+  const html = renderPreviewHtml(parseLpsDocument("line#same:|a#plain:|b#x/!comy:|"), { nonce });
 
   assert.equal((html.match(/data-action="deeper"/g) ?? []).length, 1);
   assert.equal((html.match(/data-action="reset"/g) ?? []).length, 1);
@@ -322,6 +424,19 @@ test("decode layers and their buttons are only rendered for values that change",
   // No layer data at all when nothing changes.
   const plain = renderPreviewHtml(parseLpsDocument("line#same:|a#plain:|"), { nonce });
   assert.doesNotMatch(plain, /data-action="deeper"|data-layer="1"|再解一层/);
+  // `/!n` and `/n` do not change when decoded again, so they get no button either.
+  const stable = renderPreviewHtml(parseLpsDocument("line#a/!nb:|a#/n:|b#/null:|"), { nonce });
+  assert.doesNotMatch(stable, /data-action="deeper"|data-layer="1"|再解一层/);
+});
+
+test("decode layers of a multi-line value keep the line breaks in every layer", () => {
+  const document = parseWithDecoded("line#i:|", { info: "x/!comy\nz" });
+  const html = renderPreviewHtml(document, { nonce });
+
+  assert.match(html, /data-layers="3"/);
+  assert.match(html, /<div class="vlayer" data-layer="0"><div class="value">x\/!comy\nz<\/div><\/div>/);
+  assert.match(html, /<div class="vlayer" data-layer="1" hidden><div class="value">x\/comy\nz<\/div><\/div>/);
+  assert.match(html, /<div class="vlayer" data-layer="2" hidden><div class="value">x,y\nz<\/div><\/div>/);
 });
 
 test("deep decode layers are limited to eight extra copies in the page", () => {
@@ -333,10 +448,12 @@ test("deep decode layers are limited to eight extra copies in the page", () => {
 });
 
 test("layer values are html-escaped and a decoded carriage return survives the HTML parser", () => {
-  const html = renderPreviewHtml(parseLpsDocument("line:|v#<b>/!n:|r#a/rb:|"), { nonce });
+  const html = renderPreviewHtml(parseLpsDocument("line:|v#<b>/!r:|r#a/rb:|"), { nonce });
 
   assert.doesNotMatch(html, /<b>/);
-  assert.match(html, /<div class="vlayer" data-layer="1" hidden><div class="value">&lt;b&gt;\n<\/div><\/div>/);
+  assert.match(html, /<div class="vlayer" data-layer="0"><div class="value">&lt;b&gt;\/r<\/div><\/div>/);
+  // The second pass turns `/r` into a CR, which must be written as a character reference too.
+  assert.match(html, /<div class="vlayer" data-layer="1" hidden><div class="value">&lt;b&gt;&#13;<\/div><\/div>/);
   // A raw CR in the markup would be turned into LF by the HTML parser.
   assert.ok(html.includes("a&#13;b"));
   assert.ok(!html.includes("\r"));

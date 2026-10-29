@@ -27,7 +27,7 @@
  *      调用 `dotnet run --no-build --project test/LinePutScriptConsistency -- --dump-many <cases.json>`
  *      取得 C# 结果（需要先 dotnet build 一次，本脚本默认会做）。
  *   3. 逐字段比较：行数、每行 name/info/text/comments/subs、decoded 值、formatLpsDocument 与 C# ToString()、
- *      decodeLpsText 与 TextDeReplace、encodeLpsText 与 TextReplace、normalizedText。
+ *      decodeLpsTextLikeCSharp 与 TextDeReplace（decodeLpsText 与「把换行还原为 /n 的 TextDeReplace」）、encodeLpsText 与 TextReplace、normalizedText。
  *   4. 检查 TS 的 range/nameRange/separatorRange/infoRange/textRange/commentRange（及 sub 的）是否指向「原始输入文本」
  *      中的正确位置（CRLF 输入同样校验）。续行（:\n| / :\n:）或行内含孤立 \r 的逻辑行，其原文范围本来就包含换行/CR，
  *      只校验整行 range 并单独归入 info 类别，不计为错误。
@@ -492,10 +492,10 @@ function loadTsModules(outDir) {
   const parser = req('parser.js');
   const escape = req('escape.js');
   const formatter = req('formatter.js');
-  for (const [mod, names] of [[parser, ['parseLpsDocument']], [escape, ['decodeLpsText', 'encodeLpsText']], [formatter, ['formatLpsDocument']]]) {
+  for (const [mod, names] of [[parser, ['parseLpsDocument']], [escape, ['decodeLpsText', 'decodeLpsTextLikeCSharp', 'encodeLpsText']], [formatter, ['formatLpsDocument']]]) {
     for (const n of names) if (typeof mod[n] !== 'function') throw new Error(`编译产物缺少导出函数 ${n}`);
   }
-  return { parseLpsDocument: parser.parseLpsDocument, decodeLpsText: escape.decodeLpsText, encodeLpsText: escape.encodeLpsText, formatLpsDocument: formatter.formatLpsDocument };
+  return { parseLpsDocument: parser.parseLpsDocument, decodeLpsText: escape.decodeLpsText, decodeLpsTextLikeCSharp: escape.decodeLpsTextLikeCSharp, encodeLpsText: escape.encodeLpsText, formatLpsDocument: formatter.formatLpsDocument };
 }
 
 const J = (v) => JSON.stringify(v);
@@ -518,8 +518,14 @@ function evaluate(text, cs, mods) {
 
   // 转义函数（对整段输入）
   try {
-    const d = mods.decodeLpsText(text);
+    const d = mods.decodeLpsTextLikeCSharp(text);
     if (d !== cs.deReplace) add('escape.decode', { ts: J(d), cs: J(cs.deReplace) });
+    // 扩展实际使用的解码器不把 /n 解成换行：C# 结果里的换行只可能来自 /n（输入文本本身不含换行时）
+    if (!text.includes('\n')) {
+      const kept = mods.decodeLpsText(text);
+      const expected = cs.deReplace.split('\n').join('/n');
+      if (kept !== expected) add('escape.decode.keep-n', { ts: J(kept), cs: J(expected) });
+    }
   } catch (e) { add('ts.throw', { where: 'decodeLpsText', ts: String(e && e.stack || e), cs: '(no throw)' }); }
   try {
     const d = mods.encodeLpsText(text);
@@ -553,12 +559,13 @@ function evaluate(text, cs, mods) {
       const T = tl[i];
       const C = cl[i];
       const cmp = (kind, where, a, b) => { if (a !== b) add(kind, { where, ts: J(a), cs: J(b) }); };
+      const keepN = (value) => value.split('\n').join('/n');
       const w = `line ${i}`;
       cmp('parse.line.name', w, T.name, C.name);
       cmp('parse.line.info', w, T.info, C.info);
-      cmp('parse.line.decodedInfo', w, T.decodedInfo, C.decodedInfo);
+      cmp('parse.line.decodedInfo', w, T.decodedInfo, keepN(C.decodedInfo));
       cmp('parse.line.text', w, T.text, C.text);
-      cmp('parse.line.decodedText', w, T.decodedText, C.decodedText);
+      cmp('parse.line.decodedText', w, T.decodedText, keepN(C.decodedText));
       cmp('parse.line.comments', w, T.comments, C.comments);
       if (T.subs.length !== C.subs.length) {
         add('parse.sub.count', {
@@ -571,7 +578,7 @@ function evaluate(text, cs, mods) {
           const ws = `line ${i} sub ${j}`;
           cmp('parse.sub.name', ws, T.subs[j].name, C.subs[j].name);
           cmp('parse.sub.info', ws, T.subs[j].info, C.subs[j].info);
-          cmp('parse.sub.decodedInfo', ws, T.subs[j].decodedInfo, C.subs[j].decodedInfo);
+          cmp('parse.sub.decodedInfo', ws, T.subs[j].decodedInfo, keepN(C.subs[j].decodedInfo));
         }
       }
     }
@@ -719,7 +726,8 @@ const KIND_DESC = {
   'format.document': 'formatLpsDocument ≠ C# LpsDocument.ToString()（无法逐行对齐时的整体比较）',
   'format.line': 'formatLpsDocument 单行输出 ≠ C# 对应行的 ToString()',
   'format.line.no-separator': '无 ":|" 的非注释行：C# 输出 name:|<整行文本>（内容被复制），TS 保持原样（info，视为有意偏差）',
-  'escape.decode': 'decodeLpsText ≠ Sub.TextDeReplace',
+  'escape.decode': 'decodeLpsTextLikeCSharp ≠ Sub.TextDeReplace',
+  'escape.decode.keep-n': 'decodeLpsText（保留 /n）≠ Sub.TextDeReplace 的结果把换行还原为 /n',
   'escape.encode': 'encodeLpsText ≠ Sub.TextReplace'
 };
 
