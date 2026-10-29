@@ -5,6 +5,8 @@ const path = require("node:path");
 const production = process.argv.includes("--production");
 const watch = process.argv.includes("--watch");
 const tests = process.argv.includes("--tests");
+// LPS_OUT_DIR lets parallel builds (or a locked out/ folder) use a different output root.
+const outRoot = process.env.LPS_OUT_DIR || "out";
 
 /** @type {esbuild.BuildOptions} */
 const common = {
@@ -23,12 +25,12 @@ const builds = [
   {
     ...common,
     entryPoints: ["src/extension.ts"],
-    outfile: "out/src/extension.js"
+    outfile: path.join(outRoot, "src", "extension.js")
   },
   {
     ...common,
     entryPoints: ["src/server.ts"],
-    outfile: "out/src/server.js"
+    outfile: path.join(outRoot, "src", "server.js")
   }
 ];
 
@@ -38,7 +40,7 @@ const testBuilds = fs.existsSync("test")
     .map((file) => ({
       ...common,
       entryPoints: [path.join("test", file)],
-      outfile: path.join("out", "test", file.replace(/\.ts$/, ".js")),
+      outfile: path.join(outRoot, "test", file.replace(/\.ts$/, ".js")),
       external: ["vscode"],
       minify: false,
       sourcemap: false

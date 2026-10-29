@@ -6,5 +6,6 @@
   "command.formatDocument.title": "格式化文档",
   "command.showParsedStructure.title": "显示解析结构",
   "command.openPreview.title": "打开预览",
+  "command.exportParsed.title": "导出解析后内容",
   "submenu.lineputscript.label": "LinePutScript"
 }

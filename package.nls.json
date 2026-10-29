@@ -6,5 +6,6 @@
   "command.formatDocument.title": "Format Document",
   "command.showParsedStructure.title": "Show Parsed Structure",
   "command.openPreview.title": "Open Preview",
+  "command.exportParsed.title": "Export Parsed Content",
   "submenu.lineputscript.label": "LinePutScript"
 }

@@ -7,28 +7,20 @@
       "include": "#comments"
     },
     {
-      "include": "#escapes"
-    },
-    {
       "include": "#line-name"
     },
     {
       "include": "#sub-name"
     },
     {
-      "include": "#info-value"
-    },
-    {
       "include": "#text-value"
-    },
-    {
-      "include": "#separators"
     }
   ],
   "repository": {
     "comments": {
       "patterns": [
         {
+          "comment": "The first /// ends the entries; everything after it is a comment.",
           "name": "comment.line.triple-slash.lineputscript",
           "match": "///.*$"
         }
@@ -37,67 +29,131 @@
     "escapes": {
       "patterns": [
         {
+          "comment": "Only used inside info and text values. Names are never unescaped.",
           "name": "constant.character.escape.lineputscript",
-          "match": "/(?:stop|equ|tab|n|r|id|com|!|\\|)"
+          "match": "/(?:stop|equ|tab|n|r|id|com|!\\||!|\\|)"
         }
       ]
     },
     "line-name": {
+      "comment": "First physical line of a logical line: name[#info][:|]. Skips comment-only lines and continuation lines (starting with | or a lone :). The first rule is a fast path for values without escapes; the second one re-tokenizes captures and is slower on long lines.",
       "patterns": [
         {
-          "name": "entity.name.tag.line.lineputscript",
-          "match": "^(?!///)((?:(?!#|:\\|)[^\\r\\n])+)(?=(?:#|:\\|))"
+          "match": "^(?![|]|:(?!\\|)|///|$)([^#:/\\r\\n]*(?:(?::(?!\\|)|/(?!//))[^#:/\\r\\n]*)*)(?:(#)([^:/\\r\\n]*(?:(?::(?!\\|)|/(?!//|(?:stop|equ|tab|n|r|id|com|!|\\|)))[^:/\\r\\n]*)*))?(?:(:\\|)|(?=///|$))",
+          "captures": {
+            "1": {
+              "name": "entity.name.tag.line.lineputscript"
+            },
+            "2": {
+              "name": "meta.info.lineputscript punctuation.separator.key-value.lineputscript"
+            },
+            "3": {
+              "name": "meta.info.lineputscript string.unquoted.info.lineputscript"
+            },
+            "4": {
+              "name": "punctuation.separator.entry.lineputscript"
+            }
+          }
+        },
+        {
+          "match": "^(?![|]|:(?!\\|)|///|$)([^#:/\\r\\n]*(?:(?::(?!\\|)|/(?!//))[^#:/\\r\\n]*)*)(?:(#)([^:/\\r\\n]*(?:(?::(?!\\|)|/(?!//))[^:/\\r\\n]*)*))?(:\\|)?",
+          "captures": {
+            "1": {
+              "name": "entity.name.tag.line.lineputscript"
+            },
+            "2": {
+              "name": "meta.info.lineputscript punctuation.separator.key-value.lineputscript"
+            },
+            "3": {
+              "name": "meta.info.lineputscript string.unquoted.info.lineputscript",
+              "patterns": [
+                {
+                  "include": "#info-value"
+                }
+              ]
+            },
+            "4": {
+              "name": "punctuation.separator.entry.lineputscript"
+            }
+          }
         }
       ]
     },
     "sub-name": {
+      "comment": "A complete sub entry name[#info]:| that follows a :| (or the marker of a continuation line). Fast path first, then the escape-aware rule.",
       "patterns": [
         {
-          "name": "variable.parameter.sub.lineputscript",
-          "match": "(?<=:\\|)((?:(?!#|:\\|)[^\\r\\n])+)(?=(?:#|:\\|))"
+          "match": "(?<=:\\||^[|:])([^#:/\\r\\n]*(?:(?::(?!\\|)|/(?!//))[^#:/\\r\\n]*)*)(?:(#)([^:/\\r\\n]*(?:(?::(?!\\|)|/(?!//|(?:stop|equ|tab|n|r|id|com|!|\\|)))[^:/\\r\\n]*)*))?(:\\|)",
+          "captures": {
+            "1": {
+              "name": "variable.parameter.sub.lineputscript"
+            },
+            "2": {
+              "name": "meta.info.lineputscript punctuation.separator.key-value.lineputscript"
+            },
+            "3": {
+              "name": "meta.info.lineputscript string.unquoted.info.lineputscript"
+            },
+            "4": {
+              "name": "punctuation.separator.entry.lineputscript"
+            }
+          }
+        },
+        {
+          "match": "(?<=:\\||^[|:])([^#:/\\r\\n]*(?:(?::(?!\\|)|/(?!//))[^#:/\\r\\n]*)*)(?:(#)([^:/\\r\\n]*(?:(?::(?!\\|)|/(?!//))[^:/\\r\\n]*)*))?(:\\|)",
+          "captures": {
+            "1": {
+              "name": "variable.parameter.sub.lineputscript"
+            },
+            "2": {
+              "name": "meta.info.lineputscript punctuation.separator.key-value.lineputscript"
+            },
+            "3": {
+              "name": "meta.info.lineputscript string.unquoted.info.lineputscript",
+              "patterns": [
+                {
+                  "include": "#info-value"
+                }
+              ]
+            },
+            "4": {
+              "name": "punctuation.separator.entry.lineputscript"
+            }
+          }
         }
       ]
     },
     "info-value": {
+      "comment": "Tokens inside an info value.",
       "patterns": [
         {
-          "name": "meta.info.lineputscript",
-          "begin": "#",
-          "beginCaptures": {
-            "0": {
-              "name": "punctuation.separator.key-value.lineputscript"
-            }
-          },
-          "end": "(?=:\\|)",
-          "patterns": [
-            {
-              "include": "#escapes"
-            },
-            {
-              "name": "string.unquoted.info.lineputscript",
-              "match": "(?:(?!:\\|)[^/\\r\\n])+"
-            }
-          ]
+          "include": "#escapes"
         }
       ]
     },
     "text-value": {
+      "comment": "Remainder after the last :| (every entry that still ends with :| is claimed by sub-name first).",
       "patterns": [
         {
-          "name": "string.unquoted.text.lineputscript",
-          "match": "(?<=:\\|)(?![^\\r\\n]*:\\|)[^/\\r\\n]*?(?=///|$)"
-        }
-      ]
-    },
-    "separators": {
-      "patterns": [
-        {
-          "name": "punctuation.separator.key-value.lineputscript",
-          "match": "#"
+          "match": "(?<=:\\||^[|:])(?!///|$)([^/\\r\\n]*(?:/(?!//|(?:stop|equ|tab|n|r|id|com|!|\\|))[^/\\r\\n]*)*)(?=///|$)",
+          "captures": {
+            "1": {
+              "name": "string.unquoted.text.lineputscript"
+            }
+          }
         },
         {
-          "name": "punctuation.separator.entry.lineputscript",
-          "match": ":\\|"
+          "match": "(?<=:\\||^[|:])(?!///|$)([^/\\r\\n]*(?:/(?!//)[^/\\r\\n]*)*)",
+          "captures": {
+            "1": {
+              "name": "string.unquoted.text.lineputscript",
+              "patterns": [
+                {
+                  "include": "#escapes"
+                }
+              ]
+            }
+          }
         }
       ]
     }

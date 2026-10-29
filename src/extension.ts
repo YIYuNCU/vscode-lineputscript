@@ -2,9 +2,11 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from "vscode-languageclient/node";
 import { decodeLpsText, encodeLpsText } from "./lps/escape";
+import { ExportFormat, exportFormatExtensions, exportParsed } from "./lps/export";
 import { toDisplayTree } from "./lps/formatter";
 import { parseLpsDocument } from "./lps/parser";
-import { renderPreviewHtml } from "./lps/preview";
+import { createPreviewNonce, parsePreviewMessage, planReveal, renderPreviewHtml } from "./lps/preview";
+import type { LpsDocument } from "./lps/types";
 
 let client: LanguageClient | undefined;
 
@@ -37,7 +39,8 @@ export function activate(context: vscode.ExtensionContext): void {
       await vscode.commands.executeCommand("editor.action.formatDocument");
     }),
     vscode.commands.registerCommand("lineputscript.showParsedStructure", showParsedStructure),
-    vscode.commands.registerCommand("lineputscript.openPreview", openPreview)
+    vscode.commands.registerCommand("lineputscript.openPreview", openPreview),
+    vscode.commands.registerCommand("lineputscript.exportParsed", exportParsedFromActiveEditor)
   );
 }
 
@@ -89,17 +92,144 @@ async function openPreview(): Promise<void> {
     return;
   }
 
+  // Offsets in the preview refer to this exact text, so remember the version it was built from.
+  const source: PreviewSource = {
+    uri: editor.document.uri,
+    fileName: editor.document.fileName,
+    version: editor.document.version
+  };
   const parsed = parseLpsDocument(editor.document.getText());
   const panel = vscode.window.createWebviewPanel(
     "lineputscriptPreview",
-    `Preview ${path.basename(editor.document.fileName)}`,
+    `Preview ${path.basename(source.fileName)}`,
     vscode.ViewColumn.Beside,
     {
-      enableScripts: false,
+      enableScripts: true,
+      localResourceRoots: [],
       retainContextWhenHidden: true
     }
   );
-  panel.webview.html = renderPreviewHtml(parsed);
+  panel.webview.onDidReceiveMessage((raw: unknown) => {
+    const message = parsePreviewMessage(raw);
+    if (!message) {
+      return;
+    }
+    switch (message.type) {
+      case "export":
+        void exportParsedDocument(parsed, source);
+        break;
+      case "copy":
+        void copyPreviewValue(message.text);
+        break;
+      case "reveal":
+        void revealInSource(parsed, source, message.start, message.end);
+        break;
+    }
+  });
+  panel.webview.html = renderPreviewHtml(parsed, { nonce: createPreviewNonce() });
+}
+
+interface ExportSource {
+  uri: vscode.Uri;
+  fileName: string;
+}
+
+interface PreviewSource extends ExportSource {
+  /** Version of the document the preview was built from. */
+  version: number;
+}
+
+async function copyPreviewValue(text: string): Promise<void> {
+  try {
+    await vscode.env.clipboard.writeText(text);
+    vscode.window.setStatusBarMessage(`已复制 ${text.length} 个字符到剪贴板`, 3000);
+  } catch (error) {
+    void vscode.window.showErrorMessage(`复制失败：${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+async function revealInSource(parsed: LpsDocument, source: PreviewSource, start: number, end: number): Promise<void> {
+  try {
+    const document = await vscode.workspace.openTextDocument(source.uri);
+    const plan = planReveal(
+      { version: source.version, text: () => parsed.text },
+      { version: document.version, text: () => document.getText() },
+      start,
+      end
+    );
+    if (!plan.ok) {
+      void vscode.window.showWarningMessage("预览已过期，请重新打开预览");
+      return;
+    }
+
+    const visible = vscode.window.visibleTextEditors.find((candidate) => candidate.document === document);
+    const editor = await vscode.window.showTextDocument(document, {
+      viewColumn: visible?.viewColumn ?? vscode.ViewColumn.One,
+      preserveFocus: false
+    });
+    const range = new vscode.Range(document.positionAt(plan.start), document.positionAt(plan.end));
+    editor.selection = new vscode.Selection(range.start, range.end);
+    editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+  } catch (error) {
+    void vscode.window.showErrorMessage(`无法跳转到源码：${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+async function exportParsedFromActiveEditor(): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    void vscode.window.showWarningMessage("请先打开一个 .lps 文件。");
+    return;
+  }
+
+  await exportParsedDocument(
+    parseLpsDocument(editor.document.getText()),
+    { uri: editor.document.uri, fileName: editor.document.fileName }
+  );
+}
+
+async function exportParsedDocument(parsed: LpsDocument, source: ExportSource): Promise<void> {
+  const choice = await vscode.window.showQuickPick<{ label: string; description: string; format: ExportFormat }>(
+    [
+      { label: "JSON", description: "结构化数据（.json）", format: "json" },
+      { label: "CSV", description: "每个 sub 一行的表格（.csv，UTF-8 BOM）", format: "csv" },
+      { label: "文本", description: "便于阅读的纯文本（.txt）", format: "txt" }
+    ],
+    { placeHolder: "选择导出格式", title: "导出解析后内容" }
+  );
+  if (!choice) {
+    return;
+  }
+
+  const extension = exportFormatExtensions[choice.format];
+  const baseName = path.basename(source.fileName, path.extname(source.fileName)) || "lineputscript";
+  const defaultUri = source.uri.scheme === "file"
+    ? vscode.Uri.file(path.join(path.dirname(source.fileName), baseName + extension))
+    : vscode.Uri.file(baseName + extension);
+  const target = await vscode.window.showSaveDialog({
+    defaultUri,
+    filters: { [choice.label]: [extension.slice(1)] },
+    saveLabel: "导出",
+    title: "导出解析后内容"
+  });
+  if (!target) {
+    return;
+  }
+
+  try {
+    const content = exportParsed(parsed, choice.format);
+    const bytes = Buffer.from((choice.format === "csv" ? String.fromCharCode(0xfeff) : "") + content, "utf8");
+    await vscode.workspace.fs.writeFile(target, bytes);
+  } catch (error) {
+    void vscode.window.showErrorMessage(`导出失败：${error instanceof Error ? error.message : String(error)}`);
+    return;
+  }
+
+  const open = "打开文件";
+  const action = await vscode.window.showInformationMessage(`已导出到 ${path.basename(target.fsPath)}`, open);
+  if (action === open) {
+    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(target));
+  }
 }
 
 function renderJsonWebview(content: string): string {

@@ -12,6 +12,12 @@ function formatSub(sub: LpsSub): string {
 }
 
 function formatLine(line: LpsLine): string {
+  // The C# writer would emit `name:|name` for a line without `:|` (it reuses the line as its text).
+  // Keep such an invalid line as written so formatting never duplicates content.
+  if (!line.hasSeparator && !line.isCommentOnly) {
+    return line.source;
+  }
+
   const info = line.info.length === 0 ? "" : `#${line.info}`;
   const comment = line.comments.length === 0 ? "" : `///${line.comments}`;
   return `${line.name}${info}:|${line.subs.map(formatSub).join("")}${line.text}${comment}`;

@@ -15,18 +15,6 @@ export function decodeLpsText(value: string | undefined | null): string {
   return text;
 }
 
-export function decodeLpsTextForPreview(value: string | undefined | null): string {
-  let text = value ?? "";
-  for (let index = 0; index < 8; index++) {
-    const decoded = decodeLpsText(text);
-    if (decoded === text) {
-      return decoded;
-    }
-    text = decoded;
-  }
-  return text;
-}
-
 export function hasInvalidRawLpsValue(value: string): boolean {
   return value.includes(":|");
 }
